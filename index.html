@@ -251,6 +251,7 @@
 
     <div class="panel">
       <h2>Adicionar item</h2>
+      <p class="hint">Custo e markup vêm preenchidos do cadastro, mas você pode ajustar aqui só pra este item — não muda o valor do catálogo.</p>
       <div class="form-row">
         <div class="field grow" id="produtoBuscaContainer" style="position:relative;">
           <label>Produto</label>
@@ -260,6 +261,8 @@
         </div>
         <div class="field small hidden" id="campoAltura"><label>Altura (cm)</label><input type="number" step="0.1" id="iAltura"></div>
         <div class="field small"><label id="labelQtd">Quantidade</label><input type="number" step="0.1" id="iQtd" placeholder="100"></div>
+        <div class="field small"><label>Custo (R$)</label><input type="number" step="0.01" id="iCusto"></div>
+        <div class="field small"><label>Markup</label><input type="number" step="0.01" id="iMarkup"></div>
         <button class="primary" onclick="adicionarItemPedido()">Adicionar ao pedido</button>
       </div>
     </div>
@@ -271,10 +274,19 @@
       </div>
       <h2>Itens do pedido <span class="badge badge-aprovado">Desconto SimBahia 13,23%</span></h2>
       <table>
-        <thead><tr><th>Produto</th><th>Altura</th><th>Qtd</th><th>Preço bruto</th><th>Total bruto</th><th>Preço líquido</th><th>Total líquido</th><th></th></tr></thead>
+        <thead><tr><th>Produto</th><th>Altura</th><th>Qtd</th><th>Espaço</th><th>Preço bruto</th><th>Total bruto</th><th>Preço líquido</th><th>Total líquido</th><th></th></tr></thead>
         <tbody id="tabelaPedido"></tbody>
-        <tfoot><tr><td class="label" colspan="4">Totais</td><td class="total-bruto" id="totalBrutoPedido">R$ 0,00</td><td></td><td class="total-liquido" id="totalLiquidoPedido">R$ 0,00</td><td></td></tr></tfoot>
+        <tfoot><tr>
+          <td class="label" colspan="3">Totais</td>
+          <td id="totalEspacoPedido">0,00</td>
+          <td></td>
+          <td class="total-bruto" id="totalBrutoPedido">R$ 0,00</td>
+          <td></td>
+          <td class="total-liquido" id="totalLiquidoPedido">R$ 0,00</td>
+          <td></td>
+        </tr></tfoot>
       </table>
+      <p class="hint" id="ocupacaoCargaTexto" style="margin-top:10px;"></p>
     </div>
 
     <div class="panel">
@@ -338,6 +350,16 @@
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const DESCONTO_SIMBAHIA = 0.1323;
+  const LARGURA_PADRAO_M = 1.90;
+  const COMPRIMENTO_PADRAO_M = 1.00;
+  const COEFICIENTE_ESPACO = 13;
+  const CARGA_FECHADA_ESPACOS = 790;
+
+  function calcularEspacoDoItem(item){
+    if(!item.altura_cm) return null; // só se aplica a laminados com altura variável
+    const alturaM = Number(item.altura_cm) / 100;
+    return LARGURA_PADRAO_M * COMPRIMENTO_PADRAO_M * alturaM * COEFICIENTE_ESPACO * Number(item.quantidade);
+  }
 
   let usuario = null;
   let vendedor = null;
@@ -514,6 +536,8 @@
     document.getElementById('iProduto').value = id;
     document.getElementById('buscaProduto').value = `${p.codigo} — ${p.descricao}`;
     document.getElementById('sugestoesProduto').classList.add('hidden');
+    document.getElementById('iCusto').value = p.custo;
+    document.getElementById('iMarkup').value = p.markup;
     atualizarCamposItem();
   }
 
@@ -594,13 +618,19 @@
     if(produto.modo_precificacao === 'CM' && (!isFinite(altura) || altura <= 0)){ alert('Informe a altura em cm.'); return; }
     if(!isFinite(qtd) || qtd <= 0){ alert('Informe a quantidade.'); return; }
 
-    const calc = calcularItem(produto, qtd, altura);
+    const custoInformado = parseFloat(document.getElementById('iCusto').value);
+    const markupInformado = parseFloat(document.getElementById('iMarkup').value);
+    const custoUsado = isFinite(custoInformado) && custoInformado >= 0 ? custoInformado : produto.custo;
+    const markupUsado = isFinite(markupInformado) && markupInformado >= 0 ? markupInformado : produto.markup;
+    const produtoAjustado = { ...produto, custo: custoUsado, markup: markupUsado };
+
+    const calc = calcularItem(produtoAjustado, qtd, altura);
     itensPedidoAtual.push({
       id: 'tmp-' + Date.now() + Math.random(),
       produto_id: produto.id, origem_item_id: null,
       descricao: produto.codigo + ' — ' + produto.descricao,
       unidade: produto.unidade, altura_cm: produto.modo_precificacao === 'CM' ? altura : null,
-      quantidade: qtd, custo_unit: produto.custo, markup: produto.markup,
+      quantidade: qtd, custo_unit: custoUsado, markup: markupUsado,
       preco_bruto_unit: calc.precoBrutoUnit, total_bruto: calc.totalBruto,
       preco_liquido_unit: calc.precoLiquidoUnit, total_liquido: calc.totalLiquido
     });
@@ -608,6 +638,8 @@
     document.getElementById('iProduto').value = '';
     document.getElementById('iAltura').value = '';
     document.getElementById('iQtd').value = '';
+    document.getElementById('iCusto').value = '';
+    document.getElementById('iMarkup').value = '';
     atualizarCamposItem();
     renderPedido();
   }
@@ -632,25 +664,38 @@
   function renderPedido(){
     const tbody = document.getElementById('tabelaPedido');
     if(itensPedidoAtual.length === 0){
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum item adicionado.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhum item adicionado.</td></tr>';
     } else {
-      tbody.innerHTML = itensPedidoAtual.map(i => `
+      tbody.innerHTML = itensPedidoAtual.map(i => {
+        const espaco = calcularEspacoDoItem(i);
+        return `
         <tr>
           <td>${i.descricao}</td>
           <td>${i.altura_cm ? fmtNum(i.altura_cm,1)+' cm' : '—'}</td>
           <td>${fmtNum(i.quantidade,1)} ${i.unidade}</td>
+          <td>${espaco !== null ? fmtNum(espaco,2) : '—'}</td>
           <td>${fmtMoeda(i.preco_bruto_unit)}</td>
           <td>${fmtMoeda(i.total_bruto)}</td>
           <td class="col-liquido">${fmtMoeda(i.preco_liquido_unit)}</td>
           <td class="col-liquido">${fmtMoeda(i.total_liquido)}</td>
           <td><button class="link-danger" onclick="removerItemPedido('${i.id}')">remover</button></td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
     const totalBruto = itensPedidoAtual.reduce((s,i)=>s+i.total_bruto,0);
     const totalLiquido = itensPedidoAtual.reduce((s,i)=>s+i.total_liquido,0);
+    const totalEspaco = itensPedidoAtual.reduce((s,i)=>s+(calcularEspacoDoItem(i)||0),0);
     document.getElementById('totalBrutoPedido').textContent = fmtMoeda(totalBruto);
     document.getElementById('totalLiquidoPedido').textContent = fmtMoeda(totalLiquido);
+    document.getElementById('totalEspacoPedido').textContent = fmtNum(totalEspaco,2);
+    const ocupacaoTxt = document.getElementById('ocupacaoCargaTexto');
+    if(totalEspaco > 0){
+      const pct = (totalEspaco / CARGA_FECHADA_ESPACOS) * 100;
+      ocupacaoTxt.textContent = `Espaço total: ${fmtNum(totalEspaco,2)} de ${CARGA_FECHADA_ESPACOS} espaços de uma carga fechada (${fmtNum(pct,1)}%).`;
+    } else {
+      ocupacaoTxt.textContent = '';
+    }
   }
 
   function calcularParcelas(totalLiquido, parcelas){
@@ -992,17 +1037,23 @@
       <tr><td style="padding:4px 0;">Parcela ${idx+1}/${parcelas}</td><td style="padding:4px 0;text-align:right;">${fmtMoeda(v)}</td></tr>
     `).join('');
 
-    const itensHtml = itens.map(i => `
+    const totalEspaco = itens.reduce((s,i) => s + (calcularEspacoDoItem(i) || 0), 0);
+
+    const itensHtml = itens.map(i => {
+      const espaco = calcularEspacoDoItem(i);
+      return `
       <tr>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${i.descricao}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${i.altura_cm ? fmtNum(i.altura_cm,1) : '—'}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtNum(i.quantidade,1)} ${i.unidade}</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${espaco !== null ? fmtNum(espaco,2) : '—'}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtMoeda(i.preco_bruto_unit)}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtMoeda(i.total_bruto)}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;color:#2f7d54;font-weight:700;">${fmtMoeda(i.preco_liquido_unit)}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;color:#2f7d54;font-weight:700;">${fmtMoeda(i.total_liquido)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
       <div style="font-family:Arial,Helvetica,sans-serif;color:#201d18;width:100%;padding:10mm;">
@@ -1031,6 +1082,7 @@
             <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Produto</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Altura</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Qtd</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Espaço</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Preço bruto</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Total bruto</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Preço líquido</th>
@@ -1038,11 +1090,17 @@
           </tr></thead>
           <tbody>${itensHtml}</tbody>
           <tfoot><tr>
-            <td colspan="4" style="padding:10px 6px;text-align:right;font-weight:700;">Totais</td>
+            <td colspan="3" style="padding:10px 6px;text-align:right;font-weight:700;">Totais</td>
+            <td style="padding:10px 6px;text-align:right;font-weight:700;">${fmtNum(totalEspaco,2)}</td>
             <td style="padding:10px 6px;text-align:right;color:#6b6558;">${fmtMoeda(totalBruto)}</td><td></td>
             <td style="padding:10px 6px;text-align:right;font-weight:800;color:#2f7d54;font-size:13px;">${fmtMoeda(totalLiquido)}</td>
           </tr></tfoot>
         </table>
+        ${totalEspaco > 0 ? `
+          <div style="font-size:11px;color:#6b6558;margin:-10px 0 16px;">
+            Espaço total: ${fmtNum(totalEspaco,2)} de ${CARGA_FECHADA_ESPACOS} espaços de uma carga fechada (${fmtNum((totalEspaco/CARGA_FECHADA_ESPACOS)*100,1)}%).
+          </div>
+        ` : ''}
         <div style="display:flex;gap:24px;">
           <div style="flex:1;background:#eaf5ef;border:1px solid #bfdfcd;border-radius:6px;padding:14px 16px;">
             <div style="font-size:11px;color:#6b6558;font-weight:700;">VALOR EFETIVO DE PAGAMENTO (LÍQUIDO)</div>
@@ -1118,15 +1176,31 @@
         .filter(fi => fi.origem_item_id === item.id)
         .reduce((s,fi) => s + Number(fi.quantidade), 0);
       const restante = Number(item.quantidade) - usado;
+      const espacoTotal = calcularEspacoDoItem(item);
+      const espacoUsado = espacoTotal !== null ? calcularEspacoDoItem({ altura_cm: item.altura_cm, quantidade: usado }) : null;
+      const espacoRestante = espacoTotal !== null ? espacoTotal - espacoUsado : null;
       return `
         <tr>
           <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${item.descricao}</td>
           <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtNum(item.quantidade,1)} ${item.unidade}</td>
           <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtNum(usado,1)} ${item.unidade}</td>
           <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;font-weight:700;color:${restante>0.001?'#8a6d1f':'#2f7d54'};">${fmtNum(restante,1)} ${item.unidade}</td>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${espacoTotal !== null ? fmtNum(espacoTotal,2) : '—'}</td>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;font-weight:700;color:${restante>0.001?'#8a6d1f':'#2f7d54'};">${espacoRestante !== null ? fmtNum(espacoRestante,2) : '—'}</td>
         </tr>
       `;
     }).join('');
+
+    const totalEspacoMae = mae.pedido_itens.reduce((s,item) => s + (calcularEspacoDoItem(item) || 0), 0);
+    const totalEspacoRestante = mae.pedido_itens.reduce((s,item) => {
+      const usado = filhos.flatMap(fi => fi.pedido_itens || [])
+        .filter(fi => fi.origem_item_id === item.id)
+        .reduce((s2,fi) => s2 + Number(fi.quantidade), 0);
+      const espacoTotal = calcularEspacoDoItem(item);
+      if(espacoTotal === null) return s;
+      const espacoUsado = calcularEspacoDoItem({ altura_cm: item.altura_cm, quantidade: usado });
+      return s + (espacoTotal - espacoUsado);
+    }, 0);
 
     const totalDesmembrado = filhos.reduce((s,fi) => s + Number(fi.total_liquido), 0);
     const saldoLiquido = Number(mae.total_liquido) - totalDesmembrado;
@@ -1173,9 +1247,17 @@
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Total do pedido</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Já desmembrado</th>
             <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Saldo restante</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Espaço total</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Espaço restante</th>
           </tr></thead>
           <tbody>${itensHtml}</tbody>
         </table>
+        ${totalEspacoMae > 0 ? `
+          <div style="font-size:11px;color:#6b6558;margin:-10px 0 16px;">
+            Espaço total do pedido: ${fmtNum(totalEspacoMae,2)} de ${CARGA_FECHADA_ESPACOS} (${fmtNum((totalEspacoMae/CARGA_FECHADA_ESPACOS)*100,1)}%) —
+            Espaço restante: ${fmtNum(totalEspacoRestante,2)} de ${CARGA_FECHADA_ESPACOS} (${fmtNum((totalEspacoRestante/CARGA_FECHADA_ESPACOS)*100,1)}%).
+          </div>
+        ` : ''}
 
         <h3 style="font-size:13px;color:#17325c;margin:0 0 6px;">Pedidos filhos (embarques)</h3>
         <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:18px;">
