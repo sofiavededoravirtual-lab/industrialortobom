@@ -138,6 +138,16 @@
   .item-split-row input{width:90px;}
 
   #areaImpressao{display:none;}
+
+  .sugestoes-lista{
+    position:absolute; top:100%; left:0; right:0; z-index:50; margin-top:2px;
+    background:#fff; border:1px solid var(--borda); border-radius:6px;
+    max-height:260px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,0.12);
+  }
+  .sugestao-item{ padding:9px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid #ece8de; }
+  .sugestao-item:last-child{ border-bottom:none; }
+  .sugestao-item:hover, .sugestao-item.ativa{ background:var(--fundo); }
+  .sugestao-vazia{ padding:10px 12px; font-size:12.5px; color:var(--tinta-suave); }
   @media print{
     body{background:#fff;}
     .topbar,.tabs,.tab-panel{display:none !important;}
@@ -221,9 +231,9 @@
     </div>
     <div class="panel">
       <h2>Catálogo</h2>
-      <p class="hint">Custo e markup são editáveis — clique no valor, altere e saia do campo pra salvar.</p>
+      <p class="hint">Todos os campos são editáveis direto na tabela — altere e saia do campo pra salvar. Mudar a Precificação pra "Por cm" faz o campo de altura aparecer na hora de montar o pedido.</p>
       <table>
-        <thead><tr><th>Código / Descrição</th><th></th><th>Unid.</th><th>Custo</th><th>Markup</th><th>Preço bruto</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Descrição</th><th>Medidas</th><th>Unid.</th><th>Precificação</th><th>Custo</th><th>Markup</th><th>Preço bruto</th><th></th></tr></thead>
         <tbody id="tabelaProdutos"></tbody>
       </table>
     </div>
@@ -242,7 +252,12 @@
     <div class="panel">
       <h2>Adicionar item</h2>
       <div class="form-row">
-        <div class="field grow"><label>Produto</label><select id="iProduto" onchange="atualizarCamposItem()"></select></div>
+        <div class="field grow" id="produtoBuscaContainer" style="position:relative;">
+          <label>Produto</label>
+          <input type="text" id="buscaProduto" placeholder="Digite o código ou parte do nome..." autocomplete="off" oninput="filtrarProdutos()" onfocus="filtrarProdutos()">
+          <input type="hidden" id="iProduto">
+          <div id="sugestoesProduto" class="sugestoes-lista hidden"></div>
+        </div>
         <div class="field small hidden" id="campoAltura"><label>Altura (cm)</label><input type="number" step="0.1" id="iAltura"></div>
         <div class="field small"><label id="labelQtd">Quantidade</label><input type="number" step="0.1" id="iQtd" placeholder="100"></div>
         <button class="primary" onclick="adicionarItemPedido()">Adicionar ao pedido</button>
@@ -269,6 +284,19 @@
           <select id="formaPagamento"><option>Cartão BLu</option><option>Cartão de Crédito</option><option>PIX</option><option>Boleto</option></select>
         </div>
         <div class="field small"><label>Nº de parcelas</label><input type="number" min="1" max="24" value="1" id="numParcelas"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Data de programação</h2>
+      <div class="form-row">
+        <div class="field small"><label>Tipo de entrega</label>
+          <select id="tipoEntrega" onchange="atualizarCampoDataEntrega()">
+            <option value="imediato">Pedido imediato</option>
+            <option value="programado">Data de entrega</option>
+          </select>
+        </div>
+        <div class="field small hidden" id="campoDataEntrega"><label>Data de entrega</label><input type="date" id="dataEntrega"></div>
       </div>
     </div>
 
@@ -429,13 +457,26 @@
 
   function renderProdutos(){
     const tbody = document.getElementById('tabelaProdutos');
-    if(produtos.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum produto cadastrado.</td></tr>'; return; }
+    if(produtos.length === 0){ tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum produto cadastrado.</td></tr>'; return; }
     tbody.innerHTML = produtos.map(p => `
       <tr>
-        <td colspan="2"><b>${p.codigo}</b> — ${p.descricao}${p.medidas ? ' <span style="color:var(--tinta-suave);">('+p.medidas+')</span>' : ''}</td>
-        <td>${p.unidade}</td>
-        <td><input type="number" step="0.01" value="${p.custo}" style="width:80px;text-align:right;" onchange="editarProduto('${p.id}','custo',this.value)"></td>
-        <td><input type="number" step="0.01" value="${p.markup}" style="width:70px;text-align:right;" onchange="editarProduto('${p.id}','markup',this.value)"></td>
+        <td><input type="text" value="${p.codigo || ''}" style="width:110px;" onchange="editarProduto('${p.id}','codigo',this.value,'texto')"></td>
+        <td><input type="text" value="${p.descricao || ''}" style="width:260px;" onchange="editarProduto('${p.id}','descricao',this.value,'texto')"></td>
+        <td><input type="text" value="${p.medidas || ''}" style="width:140px;" onchange="editarProduto('${p.id}','medidas',this.value,'texto')"></td>
+        <td>
+          <select onchange="editarProduto('${p.id}','unidade',this.value,'texto')">
+            <option value="MT" ${p.unidade==='MT'?'selected':''}>MT</option>
+            <option value="UN" ${p.unidade==='UN'?'selected':''}>UN</option>
+          </select>
+        </td>
+        <td>
+          <select onchange="editarProduto('${p.id}','modo_precificacao',this.value,'texto')">
+            <option value="FIXO" ${p.modo_precificacao==='FIXO'?'selected':''}>Fixo</option>
+            <option value="CM" ${p.modo_precificacao==='CM'?'selected':''}>Por cm</option>
+          </select>
+        </td>
+        <td><input type="number" step="0.01" value="${p.custo}" style="width:80px;text-align:right;" onchange="editarProduto('${p.id}','custo',this.value,'numero')"></td>
+        <td><input type="number" step="0.01" value="${p.markup}" style="width:70px;text-align:right;" onchange="editarProduto('${p.id}','markup',this.value,'numero')"></td>
         <td>${fmtMoeda(p.custo * p.markup)}${p.modo_precificacao === 'CM' ? '/cm' : '/'+p.unidade.toLowerCase()}</td>
         <td><button class="link-danger" onclick="removerProduto('${p.id}')">remover</button></td>
       </tr>
@@ -443,10 +484,45 @@
   }
 
   function renderSelectProdutos(){
-    const sel = document.getElementById('iProduto');
-    sel.innerHTML = produtos.map(p => `<option value="${p.id}">${p.codigo} — ${p.descricao}</option>`).join('');
+    // Não há mais <select> com todas as opções — a busca (filtrarProdutos)
+    // já lê direto do array `produtos` a cada tecla digitada.
+    document.getElementById('iProduto').value = '';
+    document.getElementById('buscaProduto').value = '';
     atualizarCamposItem();
   }
+
+  function filtrarProdutos(){
+    const termo = document.getElementById('buscaProduto').value.trim().toLowerCase();
+    const lista = document.getElementById('sugestoesProduto');
+    const resultados = termo.length === 0
+      ? produtos.slice(0, 30)
+      : produtos.filter(p => (p.codigo + ' ' + p.descricao).toLowerCase().includes(termo));
+
+    if(resultados.length === 0){
+      lista.innerHTML = '<div class="sugestao-vazia">Nenhum produto encontrado</div>';
+    } else {
+      lista.innerHTML = resultados.map(p => `
+        <div class="sugestao-item" onmousedown="selecionarProduto('${p.id}')">${p.codigo} — ${p.descricao}</div>
+      `).join('');
+    }
+    lista.classList.remove('hidden');
+  }
+
+  function selecionarProduto(id){
+    const p = produtos.find(x => x.id === id);
+    if(!p) return;
+    document.getElementById('iProduto').value = id;
+    document.getElementById('buscaProduto').value = `${p.codigo} — ${p.descricao}`;
+    document.getElementById('sugestoesProduto').classList.add('hidden');
+    atualizarCamposItem();
+  }
+
+  document.addEventListener('click', (ev) => {
+    const container = document.getElementById('produtoBuscaContainer');
+    if(container && !container.contains(ev.target)){
+      document.getElementById('sugestoesProduto')?.classList.add('hidden');
+    }
+  });
 
   function atualizarCamposItem(){
     const id = document.getElementById('iProduto').value;
@@ -454,6 +530,12 @@
     document.getElementById('campoAltura').classList.toggle('hidden', !(p && p.modo_precificacao === 'CM'));
     document.getElementById('labelQtd').textContent = p && p.unidade === 'UN' ? 'Quantidade (un)' : 'Quantidade (m)';
   }
+
+  function atualizarCampoDataEntrega(){
+    const tipo = document.getElementById('tipoEntrega').value;
+    document.getElementById('campoDataEntrega').classList.toggle('hidden', tipo !== 'programado');
+  }
+
 
   async function adicionarProduto(){
     const codigo = document.getElementById('pCodigo').value.trim();
@@ -471,10 +553,17 @@
     await carregarProdutos();
   }
 
-  async function editarProduto(id, campo, valor){
-    const num = parseFloat(valor);
-    if(!isFinite(num) || num < 0){ alert('Valor inválido.'); await carregarProdutos(); return; }
-    const { error } = await sb.from('produtos').update({ [campo]: num }).eq('id', id);
+  async function editarProduto(id, campo, valor, tipo){
+    let valorFinal = valor;
+    if(tipo === 'numero'){
+      const num = parseFloat(valor);
+      if(!isFinite(num) || num < 0){ alert('Valor inválido.'); await carregarProdutos(); return; }
+      valorFinal = num;
+    } else {
+      valorFinal = valor.trim();
+      if(campo === 'descricao' && !valorFinal){ alert('A descrição não pode ficar em branco.'); await carregarProdutos(); return; }
+    }
+    const { error } = await sb.from('produtos').update({ [campo]: valorFinal }).eq('id', id);
     if(error){ alert('Erro ao salvar: ' + error.message); }
     await carregarProdutos();
   }
@@ -501,7 +590,7 @@
     const produto = produtos.find(p => p.id === produtoId);
     const altura = parseFloat(document.getElementById('iAltura').value);
     const qtd = parseFloat(document.getElementById('iQtd').value);
-    if(!produto){ alert('Cadastre um produto primeiro.'); return; }
+    if(!produto){ alert('Busque e selecione um produto na lista de sugestões antes de adicionar.'); return; }
     if(produto.modo_precificacao === 'CM' && (!isFinite(altura) || altura <= 0)){ alert('Informe a altura em cm.'); return; }
     if(!isFinite(qtd) || qtd <= 0){ alert('Informe a quantidade.'); return; }
 
@@ -515,8 +604,11 @@
       preco_bruto_unit: calc.precoBrutoUnit, total_bruto: calc.totalBruto,
       preco_liquido_unit: calc.precoLiquidoUnit, total_liquido: calc.totalLiquido
     });
+    document.getElementById('buscaProduto').value = '';
+    document.getElementById('iProduto').value = '';
     document.getElementById('iAltura').value = '';
     document.getElementById('iQtd').value = '';
+    atualizarCamposItem();
     renderPedido();
   }
 
@@ -531,6 +623,9 @@
     cancelarEdicaoPedido();
     document.getElementById('clienteNome').value = '';
     document.getElementById('clienteCidade').value = '';
+    document.getElementById('tipoEntrega').value = 'imediato';
+    document.getElementById('dataEntrega').value = '';
+    atualizarCampoDataEntrega();
     renderPedido();
   }
 
@@ -575,10 +670,14 @@
     const parcelas = parseInt(document.getElementById('numParcelas').value) || 1;
     const total_bruto = itensPedidoAtual.reduce((s,i)=>s+i.total_bruto,0);
     const total_liquido = itensPedidoAtual.reduce((s,i)=>s+i.total_liquido,0);
+    const tipo_entrega = document.getElementById('tipoEntrega').value;
+    const data_entrega = document.getElementById('dataEntrega').value || null;
+    if(tipo_entrega === 'programado' && !data_entrega){ alert('Informe a data de entrega, ou marque como "Pedido imediato".'); return; }
 
     if(pedidoEditandoId){
       const { error: errPedido } = await sb.from('pedidos').update({
-        cliente_nome, cliente_cidade, forma_pagamento, parcelas, total_bruto, total_liquido
+        cliente_nome, cliente_cidade, forma_pagamento, parcelas, total_bruto, total_liquido,
+        tipo_entrega, data_entrega: tipo_entrega === 'programado' ? data_entrega : null
       }).eq('id', pedidoEditandoId);
       if(errPedido){ alert('Erro ao salvar: ' + errPedido.message); return; }
       await sb.from('pedido_itens').delete().eq('pedido_id', pedidoEditandoId);
@@ -594,7 +693,8 @@
     } else {
       const { data: pedido, error: errPedido } = await sb.from('pedidos').insert({
         vendedor_id: usuario.id, cliente_nome, cliente_cidade, status:'orcamento',
-        forma_pagamento, parcelas, total_bruto, total_liquido
+        forma_pagamento, parcelas, total_bruto, total_liquido,
+        tipo_entrega, data_entrega: tipo_entrega === 'programado' ? data_entrega : null
       }).select().single();
       if(errPedido){ alert('Erro ao salvar: ' + errPedido.message); return; }
       const itensInsert = itensPedidoAtual.map(i => ({
@@ -632,6 +732,14 @@
     return `<span class="badge badge-${status}">${labels[status] || status}</span>`;
   }
 
+  function textoEntrega(p){
+    if(p.tipo_entrega === 'programado' && p.data_entrega){
+      const [ano,mes,dia] = p.data_entrega.split('-');
+      return `Entrega: ${dia}/${mes}/${ano}`;
+    }
+    return 'Entrega imediata';
+  }
+
   function renderHistorico(){
     const cont = document.getElementById('listaHistorico');
     if(pedidosCache.length === 0){ cont.innerHTML = '<p class="hint">Nenhum orçamento ainda.</p>'; return; }
@@ -640,7 +748,7 @@
         <div class="pedido-card-top">
           <div>
             <div class="cliente">${p.cliente_nome} ${badgeStatus(p.status)}</div>
-            <div class="meta">${p.cliente_cidade || ''} — ${new Date(p.created_at).toLocaleDateString('pt-BR')} — ${p.forma_pagamento} ${p.parcelas}x ${p.numero_pedido ? '— Pedido nº '+p.numero_pedido : ''}</div>
+            <div class="meta">${p.cliente_cidade || ''} — ${new Date(p.created_at).toLocaleDateString('pt-BR')} — ${p.forma_pagamento} ${p.parcelas}x ${p.numero_pedido ? '— Pedido nº '+p.numero_pedido : ''} — ${textoEntrega(p)}</div>
           </div>
           <div class="valores">
             <div style="color:var(--tinta-suave);font-size:12px;">${fmtMoeda(p.total_bruto)} bruto</div>
@@ -668,6 +776,9 @@
     document.getElementById('clienteCidade').value = p.cliente_cidade || '';
     document.getElementById('formaPagamento').value = p.forma_pagamento;
     document.getElementById('numParcelas').value = p.parcelas;
+    document.getElementById('tipoEntrega').value = p.tipo_entrega || 'imediato';
+    document.getElementById('dataEntrega').value = p.data_entrega || '';
+    atualizarCampoDataEntrega();
     itensPedidoAtual = (p.pedido_itens || []).map(i => ({
       id: i.id, produto_id: i.produto_id, origem_item_id: i.origem_item_id, descricao: i.descricao,
       unidade: i.unidade, altura_cm: i.altura_cm, quantidade: i.quantidade, custo_unit: i.custo_unit,
@@ -730,8 +841,11 @@
       const saldo = saldoMae(mae);
       const filhosHtml = mae._filhos.map(f => `
         <div class="filho-row">
-          <span>Pedido filho nº <b>${f.numero_pedido || '—'}</b> — ${fmtMoeda(f.total_liquido)} — ${f.forma_pagamento} ${f.parcelas}x ${badgeStatus(f.status)}</span>
-          ${f.status !== 'faturado' ? `<button class="small-action verde" onclick="marcarFaturado('${f.id}')">Marcar como faturado</button>` : ''}
+          <span>Pedido filho nº <b>${f.numero_pedido || '—'}</b> — ${fmtMoeda(f.total_liquido)} — ${f.forma_pagamento} ${f.parcelas}x — ${textoEntrega(f)} ${badgeStatus(f.status)}</span>
+          <span style="display:flex;gap:6px;">
+            <button class="small-action azul" onclick="gerarPDFPedidoSalvo('${f.id}')">Gerar PDF</button>
+            ${f.status !== 'faturado' ? `<button class="small-action verde" onclick="marcarFaturado('${f.id}')">Marcar como faturado</button>` : ''}
+          </span>
         </div>
       `).join('');
 
@@ -751,11 +865,15 @@
           <div class="pedido-card-top">
             <div>
               <div class="cliente">${mae.cliente_nome} ${badgeStatus(mae.status)}</div>
-              <div class="meta">${mae.cliente_cidade || ''} — Pedido nº ${mae.numero_pedido || '—'} — ${new Date(mae.created_at).toLocaleDateString('pt-BR')}</div>
+              <div class="meta">${mae.cliente_cidade || ''} — Pedido nº ${mae.numero_pedido || '—'} — ${new Date(mae.created_at).toLocaleDateString('pt-BR')} — ${textoEntrega(mae)}</div>
             </div>
             <div class="valores">
               <div style="color:var(--tinta-suave);font-size:12px;">Total do pedido</div>
               <div class="liquido">${fmtMoeda(mae.total_liquido)}</div>
+              <div style="display:flex;gap:6px;margin-top:6px;">
+                <button class="small-action azul" onclick="gerarPDFPedidoSalvo('${mae.id}')">PDF do pedido</button>
+                <button class="small-action verde" onclick="gerarPDFSituacaoMae('${mae.id}')">PDF de saldo</button>
+              </div>
             </div>
           </div>
 
@@ -776,6 +894,13 @@
                   <select id="formaSplit-${mae.id}"><option>Cartão BLu</option><option>Cartão de Crédito</option><option>PIX</option><option>Boleto</option></select>
                 </div>
                 <div class="field small"><label>Parcelas</label><input type="number" min="1" max="24" value="1" id="parcelasSplit-${mae.id}"></div>
+                <div class="field small"><label>Tipo de entrega</label>
+                  <select id="tipoEntregaSplit-${mae.id}" onchange="document.getElementById('campoDataSplit-${mae.id}').classList.toggle('hidden', this.value !== 'programado')">
+                    <option value="imediato">Pedido imediato</option>
+                    <option value="programado">Data de entrega</option>
+                  </select>
+                </div>
+                <div class="field small hidden" id="campoDataSplit-${mae.id}"><label>Data de entrega</label><input type="date" id="dataEntregaSplit-${mae.id}"></div>
                 <button class="primary" onclick="criarPedidoFilho('${mae.id}')">Criar pedido filho</button>
               </div>
             </div>
@@ -789,7 +914,10 @@
     const numero = document.getElementById(`numNovoPedido-${maeId}`).value.trim();
     const forma = document.getElementById(`formaSplit-${maeId}`).value;
     const parcelas = parseInt(document.getElementById(`parcelasSplit-${maeId}`).value) || 1;
+    const tipoEntrega = document.getElementById(`tipoEntregaSplit-${maeId}`).value;
+    const dataEntrega = document.getElementById(`dataEntregaSplit-${maeId}`).value || null;
     if(!numero){ alert('Informe o número do novo pedido.'); return; }
+    if(tipoEntrega === 'programado' && !dataEntrega){ alert('Informe a data de entrega desse embarque, ou marque como "Pedido imediato".'); return; }
 
     const linhas = document.querySelectorAll(`#desmembrar-${maeId} .item-split-row`);
     const itensFilho = [];
@@ -826,6 +954,7 @@
     const { data: filho, error: errFilho } = await sb.from('pedidos').insert({
       vendedor_id: usuario.id, cliente_nome: pedidoMaeCompleto.cliente_nome, cliente_cidade: pedidoMaeCompleto.cliente_cidade,
       status:'aprovado', numero_pedido: numero, forma_pagamento: forma, parcelas,
+      tipo_entrega: tipoEntrega, data_entrega: tipoEntrega === 'programado' ? dataEntrega : null,
       total_bruto: totalBruto, total_liquido: totalLiquido, pedido_mae_id: maeId
     }).select().single();
     if(errFilho){ alert('Erro ao criar pedido filho: ' + errFilho.message); return; }
@@ -853,28 +982,17 @@
   }
 
   // ---------- PDF ----------
-  function gerarPDF(){
-    if(itensPedidoAtual.length === 0){ alert('Adicione pelo menos um item antes de gerar o PDF.'); return; }
-    const clienteNome = document.getElementById('clienteNome').value.trim() || 'Cliente';
-    const clienteCidade = document.getElementById('clienteCidade').value.trim();
-    const vendedorNome = document.getElementById('vendedorNome').value.trim() || 'Representante';
-    const vendedorZona = document.getElementById('vendedorZona').value.trim() || '—';
-
-    const hoje = new Date();
+  function montarHtmlOrcamento({ vendedorNome, vendedorZona, clienteNome, clienteCidade, itens, totalBruto, totalLiquido, forma, parcelas, numeroPedido, tituloPedido, dataPedido, textoEntregaInfo }){
+    const hoje = dataPedido ? new Date(dataPedido) : new Date();
     const validade = new Date(hoje); validade.setDate(hoje.getDate() + 5);
     const f = (d) => d.toLocaleDateString('pt-BR');
-
-    const totalBruto = itensPedidoAtual.reduce((s,i)=>s+i.total_bruto,0);
-    const totalLiquido = itensPedidoAtual.reduce((s,i)=>s+i.total_liquido,0);
-    const forma = document.getElementById('formaPagamento').value;
-    const parcelas = parseInt(document.getElementById('numParcelas').value) || 1;
     const valoresParcelas = calcularParcelas(totalLiquido, parcelas);
 
     const parcelasHtml = valoresParcelas.map((v,idx) => `
       <tr><td style="padding:4px 0;">Parcela ${idx+1}/${parcelas}</td><td style="padding:4px 0;text-align:right;">${fmtMoeda(v)}</td></tr>
     `).join('');
 
-    const itensHtml = itensPedidoAtual.map(i => `
+    const itensHtml = itens.map(i => `
       <tr>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${i.descricao}</td>
         <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${i.altura_cm ? fmtNum(i.altura_cm,1) : '—'}</td>
@@ -886,12 +1004,12 @@
       </tr>
     `).join('');
 
-    document.getElementById('areaImpressao').innerHTML = `
+    return `
       <div style="font-family:Arial,Helvetica,sans-serif;color:#201d18;width:100%;padding:10mm;">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #e0602a;padding-bottom:14px;margin-bottom:18px;">
           <div>
             <div style="font-size:24px;font-weight:800;color:#17325c;">ORTO<span style="color:#e0602a;">BOM</span></div>
-            <div style="font-size:12px;color:#6b6558;">Orçamento — Laminados e Perfilados</div>
+            <div style="font-size:12px;color:#6b6558;">${tituloPedido || 'Orçamento — Laminados e Perfilados'}</div>
           </div>
           <div style="text-align:right;font-size:12px;color:#333;">
             <div style="font-weight:700;font-size:14px;">${vendedorNome}</div>
@@ -900,7 +1018,12 @@
           </div>
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:12.5px;">
-          <div><div><b>Cliente:</b> ${clienteNome}</div>${clienteCidade ? `<div><b>Cidade:</b> ${clienteCidade}</div>` : ''}</div>
+          <div>
+            <div><b>Cliente:</b> ${clienteNome}</div>
+            ${clienteCidade ? `<div><b>Cidade:</b> ${clienteCidade}</div>` : ''}
+            ${numeroPedido ? `<div><b>Pedido nº:</b> ${numeroPedido}</div>` : ''}
+            ${textoEntregaInfo ? `<div><b>Programação:</b> ${textoEntregaInfo}</div>` : ''}
+          </div>
           <div style="text-align:right;"><div><b>Data:</b> ${f(hoje)}</div><div><b>Válido até:</b> ${f(validade)} (5 dias)</div></div>
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:18px;">
@@ -926,7 +1049,7 @@
             <div style="font-size:22px;font-weight:800;color:#2f7d54;">${fmtMoeda(totalLiquido)}</div>
           </div>
           <div style="flex:1;border:1px solid #d9d4c9;border-radius:6px;padding:14px 16px;">
-            <div style="font-size:11px;color:#6b6558;font-weight:700;margin-bottom:4px;">FORMA DE PAGAMENTO: ${forma.toUpperCase()} — ${parcelas}x</div>
+            <div style="font-size:11px;color:#6b6558;font-weight:700;margin-bottom:4px;">FORMA DE PAGAMENTO: ${(forma||'').toUpperCase()} — ${parcelas}x</div>
             <table style="width:100%;font-size:12px;">${parcelasHtml}</table>
           </div>
         </div>
@@ -935,8 +1058,161 @@
         </div>
       </div>
     `;
+  }
+
+  function gerarPDF(){
+    if(itensPedidoAtual.length === 0){ alert('Adicione pelo menos um item antes de gerar o PDF.'); return; }
+    const clienteNome = document.getElementById('clienteNome').value.trim() || 'Cliente';
+    const clienteCidade = document.getElementById('clienteCidade').value.trim();
+    const vendedorNome = document.getElementById('vendedorNome').value.trim() || 'Representante';
+    const vendedorZona = document.getElementById('vendedorZona').value.trim() || '—';
+    const totalBruto = itensPedidoAtual.reduce((s,i)=>s+i.total_bruto,0);
+    const totalLiquido = itensPedidoAtual.reduce((s,i)=>s+i.total_liquido,0);
+    const forma = document.getElementById('formaPagamento').value;
+    const parcelas = parseInt(document.getElementById('numParcelas').value) || 1;
+    const textoEntregaInfo = textoEntrega({ tipo_entrega: document.getElementById('tipoEntrega').value, data_entrega: document.getElementById('dataEntrega').value });
+
+    document.getElementById('areaImpressao').innerHTML = montarHtmlOrcamento({
+      vendedorNome, vendedorZona, clienteNome, clienteCidade,
+      itens: itensPedidoAtual, totalBruto, totalLiquido, forma, parcelas, textoEntregaInfo
+    });
     window.print();
   }
+
+  // Gera o PDF de um pedido já salvo no banco (mãe ou filho desmembrado)
+  async function gerarPDFPedidoSalvo(pedidoId){
+    const { data: pedido, error } = await sb.from('pedidos').select('*, pedido_itens(*)').eq('id', pedidoId).single();
+    if(error || !pedido){ alert('Não foi possível carregar esse pedido para gerar o PDF.'); return; }
+
+    const vendedorNome = document.getElementById('vendedorNome').value.trim() || 'Representante';
+    const vendedorZona = document.getElementById('vendedorZona').value.trim() || '—';
+    const tituloPedido = pedido.pedido_mae_id
+      ? 'Pedido desmembrado — Laminados e Perfilados'
+      : 'Orçamento — Laminados e Perfilados';
+
+    document.getElementById('areaImpressao').innerHTML = montarHtmlOrcamento({
+      vendedorNome, vendedorZona,
+      clienteNome: pedido.cliente_nome, clienteCidade: pedido.cliente_cidade,
+      itens: pedido.pedido_itens, totalBruto: pedido.total_bruto, totalLiquido: pedido.total_liquido,
+      forma: pedido.forma_pagamento, parcelas: pedido.parcelas, numeroPedido: pedido.numero_pedido,
+      tituloPedido, dataPedido: pedido.created_at, textoEntregaInfo: textoEntrega(pedido)
+    });
+    window.print();
+  }
+
+  // PDF de acompanhamento do pedido mãe: mostra quanto já foi desmembrado,
+  // quanto falta (saldo) e a situação de cada pedido filho.
+  async function gerarPDFSituacaoMae(maeId){
+    const { data: mae, error } = await sb.from('pedidos').select('*, pedido_itens(*)').eq('id', maeId).single();
+    if(error || !mae){ alert('Não foi possível carregar esse pedido.'); return; }
+    const { data: filhosData } = await sb.from('pedidos').select('*, pedido_itens(*)').eq('pedido_mae_id', maeId).order('created_at');
+    const filhos = filhosData || [];
+
+    const vendedorNome = document.getElementById('vendedorNome').value.trim() || 'Representante';
+    const vendedorZona = document.getElementById('vendedorZona').value.trim() || '—';
+    const hoje = new Date();
+    const f = (d) => new Date(d).toLocaleDateString('pt-BR');
+
+    const itensHtml = mae.pedido_itens.map(item => {
+      const usado = filhos.flatMap(fi => fi.pedido_itens || [])
+        .filter(fi => fi.origem_item_id === item.id)
+        .reduce((s,fi) => s + Number(fi.quantidade), 0);
+      const restante = Number(item.quantidade) - usado;
+      return `
+        <tr>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${item.descricao}</td>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtNum(item.quantidade,1)} ${item.unidade}</td>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtNum(usado,1)} ${item.unidade}</td>
+          <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;font-weight:700;color:${restante>0.001?'#8a6d1f':'#2f7d54'};">${fmtNum(restante,1)} ${item.unidade}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalDesmembrado = filhos.reduce((s,fi) => s + Number(fi.total_liquido), 0);
+    const saldoLiquido = Number(mae.total_liquido) - totalDesmembrado;
+
+    const statusLabel = { orcamento:'Orçamento', aprovado:'Aprovado', faturado:'Faturado', cancelado:'Cancelado' };
+    const filhosHtml = filhos.length ? filhos.map(fi => `
+      <tr>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${fi.numero_pedido || '—'}</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${f(fi.created_at)}</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${fi.forma_pagamento} ${fi.parcelas}x</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;">${textoEntrega(fi)}</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;">${fmtMoeda(fi.total_liquido)}</td>
+        <td style="padding:7px 6px;border-bottom:1px solid #e5e1d6;text-align:right;font-weight:700;color:${fi.status==='faturado'?'#2f7d54':'#17325c'};">${statusLabel[fi.status] || fi.status}</td>
+      </tr>
+    `).join('') : `<tr><td colspan="6" style="padding:10px 6px;color:#6b6558;">Nenhum pedido filho gerado ainda.</td></tr>`;
+
+    document.getElementById('areaImpressao').innerHTML = `
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#201d18;width:100%;padding:10mm;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #e0602a;padding-bottom:14px;margin-bottom:18px;">
+          <div>
+            <div style="font-size:24px;font-weight:800;color:#17325c;">ORTO<span style="color:#e0602a;">BOM</span></div>
+            <div style="font-size:12px;color:#6b6558;">Acompanhamento de desmembramento do pedido</div>
+          </div>
+          <div style="text-align:right;font-size:12px;color:#333;">
+            <div style="font-weight:700;font-size:14px;">${vendedorNome}</div>
+            <div>Representante Comercial — Ortobom</div>
+            <div>Zona ${vendedorZona}</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:12.5px;">
+          <div>
+            <div><b>Cliente:</b> ${mae.cliente_nome}</div>
+            ${mae.cliente_cidade ? `<div><b>Cidade:</b> ${mae.cliente_cidade}</div>` : ''}
+            <div><b>Pedido mãe nº:</b> ${mae.numero_pedido || '—'}</div>
+            <div><b>Programação:</b> ${textoEntrega(mae)}</div>
+          </div>
+          <div style="text-align:right;"><div><b>Atualizado em:</b> ${f(hoje)}</div></div>
+        </div>
+
+        <h3 style="font-size:13px;color:#17325c;margin:0 0 6px;">Itens — total contratado x já desmembrado x saldo</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:18px;">
+          <thead><tr style="background:#f2f0ea;">
+            <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Produto</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Total do pedido</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Já desmembrado</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Saldo restante</th>
+          </tr></thead>
+          <tbody>${itensHtml}</tbody>
+        </table>
+
+        <h3 style="font-size:13px;color:#17325c;margin:0 0 6px;">Pedidos filhos (embarques)</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:18px;">
+          <thead><tr style="background:#f2f0ea;">
+            <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Pedido nº</th>
+            <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Criado em</th>
+            <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Pagamento</th>
+            <th style="text-align:left;padding:7px 6px;border-bottom:2px solid #17325c;">Programação</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Valor líquido</th>
+            <th style="text-align:right;padding:7px 6px;border-bottom:2px solid #17325c;">Situação</th>
+          </tr></thead>
+          <tbody>${filhosHtml}</tbody>
+        </table>
+
+        <div style="display:flex;gap:24px;">
+          <div style="flex:1;border:1px solid #d9d4c9;border-radius:6px;padding:14px 16px;">
+            <div style="font-size:11px;color:#6b6558;font-weight:700;">TOTAL DO PEDIDO (LÍQUIDO)</div>
+            <div style="font-size:20px;font-weight:800;color:#201d18;">${fmtMoeda(mae.total_liquido)}</div>
+          </div>
+          <div style="flex:1;border:1px solid #d9d4c9;border-radius:6px;padding:14px 16px;">
+            <div style="font-size:11px;color:#6b6558;font-weight:700;">JÁ DESMEMBRADO (LÍQUIDO)</div>
+            <div style="font-size:20px;font-weight:800;color:#17325c;">${fmtMoeda(totalDesmembrado)}</div>
+          </div>
+          <div style="flex:1;background:${saldoLiquido>0.01?'#fbf1de':'#eaf5ef'};border:1px solid ${saldoLiquido>0.01?'#e8d9b8':'#bfdfcd'};border-radius:6px;padding:14px 16px;">
+            <div style="font-size:11px;color:#6b6558;font-weight:700;">SALDO AINDA NÃO DESMEMBRADO</div>
+            <div style="font-size:20px;font-weight:800;color:${saldoLiquido>0.01?'#8a6d1f':'#2f7d54'};">${fmtMoeda(saldoLiquido)}</div>
+          </div>
+        </div>
+
+        <div style="margin-top:26px;font-size:10.5px;color:#6b6558;border-top:1px solid #d9d4c9;padding-top:10px;">
+          Relatório gerado por ${vendedorNome} — Representante Ortobom — Zona ${vendedorZona}.
+        </div>
+      </div>
+    `;
+    window.print();
+  }
+
 
   // ---------- BOOT ----------
   (async function boot(){
