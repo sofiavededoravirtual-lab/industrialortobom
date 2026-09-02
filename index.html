@@ -671,10 +671,10 @@
         return `
         <tr>
           <td>${i.descricao}</td>
-          <td>${i.altura_cm ? fmtNum(i.altura_cm,1)+' cm' : '—'}</td>
-          <td>${fmtNum(i.quantidade,1)} ${i.unidade}</td>
+          <td>${i.altura_cm ? `<input type="number" step="0.1" value="${i.altura_cm}" style="width:65px;text-align:right;" onchange="editarItemPedido('${i.id}','altura_cm',this.value)">` : '—'}</td>
+          <td><input type="number" step="0.1" value="${i.quantidade}" style="width:75px;text-align:right;" onchange="editarItemPedido('${i.id}','quantidade',this.value)"> ${i.unidade}</td>
           <td>${espaco !== null ? fmtNum(espaco,2) : '—'}</td>
-          <td>${fmtMoeda(i.preco_bruto_unit)}</td>
+          <td><input type="number" step="0.01" value="${i.preco_bruto_unit}" style="width:85px;text-align:right;" onchange="editarItemPedido('${i.id}','preco_bruto_unit',this.value)"></td>
           <td>${fmtMoeda(i.total_bruto)}</td>
           <td class="col-liquido">${fmtMoeda(i.preco_liquido_unit)}</td>
           <td class="col-liquido">${fmtMoeda(i.total_liquido)}</td>
@@ -696,6 +696,30 @@
     } else {
       ocupacaoTxt.textContent = '';
     }
+  }
+
+  // Edita quantidade, altura ou preço bruto de um item já lançado no pedido,
+  // sem precisar remover e adicionar de novo. Recalcula tudo que depende dele.
+  function editarItemPedido(itemId, campo, valor){
+    const item = itensPedidoAtual.find(i => i.id === itemId);
+    if(!item) return;
+    const num = parseFloat(valor);
+    if(!isFinite(num) || num < 0){ alert('Valor inválido.'); renderPedido(); return; }
+
+    if(campo === 'quantidade'){
+      item.quantidade = num;
+    } else if(campo === 'altura_cm'){
+      item.altura_cm = num;
+      item.preco_bruto_unit = item.custo_unit * num * item.markup;
+    } else if(campo === 'preco_bruto_unit'){
+      item.preco_bruto_unit = num;
+    }
+
+    item.total_bruto = item.preco_bruto_unit * item.quantidade;
+    item.preco_liquido_unit = item.preco_bruto_unit * (1 - DESCONTO_SIMBAHIA);
+    item.total_liquido = item.total_bruto * (1 - DESCONTO_SIMBAHIA);
+
+    renderPedido();
   }
 
   function calcularParcelas(totalLiquido, parcelas){
