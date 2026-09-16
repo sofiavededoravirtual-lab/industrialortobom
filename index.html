@@ -170,6 +170,7 @@
       <div class="field"><label>Senha</label><input type="password" id="loginSenha" placeholder="••••••••"></div>
       <button class="primary" onclick="entrar()">Entrar</button>
       <div class="login-toggle">Novo por aqui? <a onclick="mostrarCadastro()">Criar minha conta</a></div>
+      <div class="login-toggle">Esqueceu a senha? <a onclick="mostrarRecuperarSenha()">Recuperar acesso</a></div>
     </div>
 
     <div id="formCadastro" class="hidden">
@@ -179,6 +180,20 @@
       <div class="field"><label>Senha</label><input type="password" id="cadSenha" placeholder="Mínimo 6 caracteres"></div>
       <button class="primary" onclick="cadastrar()">Criar conta</button>
       <div class="login-toggle">Já tem conta? <a onclick="mostrarEntrar()">Entrar</a></div>
+    </div>
+
+    <div id="formRecuperarSenha" class="hidden">
+      <p class="login-sub" style="margin-bottom:14px;">Informe o e-mail da sua conta — vamos te mandar um link pra redefinir a senha.</p>
+      <div class="field"><label>E-mail</label><input type="email" id="recSenhaEmail" placeholder="voce@ortobom.com"></div>
+      <button class="primary" onclick="enviarRecuperacaoSenha()">Enviar link de redefinição</button>
+      <div class="login-toggle">Lembrou a senha? <a onclick="mostrarEntrar()">Entrar</a></div>
+    </div>
+
+    <div id="formNovaSenha" class="hidden">
+      <p class="login-sub" style="margin-bottom:14px;">Defina sua nova senha de acesso.</p>
+      <div class="field"><label>Nova senha</label><input type="password" id="novaSenha1" placeholder="Mínimo 6 caracteres"></div>
+      <div class="field"><label>Confirmar nova senha</label><input type="password" id="novaSenha2" placeholder="Repita a senha"></div>
+      <button class="primary" onclick="definirNovaSenha()">Salvar nova senha</button>
     </div>
   </div>
 </div>
@@ -372,8 +387,14 @@
   const fmtNum = (v, casas=2) => (isFinite(v) ? v : 0).toLocaleString('pt-BR', { minimumFractionDigits:casas, maximumFractionDigits:casas });
 
   // ---------- LOGIN / CADASTRO ----------
-  function mostrarCadastro(){ document.getElementById('formEntrar').classList.add('hidden'); document.getElementById('formCadastro').classList.remove('hidden'); document.getElementById('loginMsg').innerHTML=''; }
-  function mostrarEntrar(){ document.getElementById('formCadastro').classList.add('hidden'); document.getElementById('formEntrar').classList.remove('hidden'); document.getElementById('loginMsg').innerHTML=''; }
+  function esconderTodosOsFormularios(){
+    ['formEntrar','formCadastro','formRecuperarSenha','formNovaSenha'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    document.getElementById('loginMsg').innerHTML = '';
+  }
+  function mostrarCadastro(){ esconderTodosOsFormularios(); document.getElementById('formCadastro').classList.remove('hidden'); }
+  function mostrarEntrar(){ esconderTodosOsFormularios(); document.getElementById('formEntrar').classList.remove('hidden'); }
+  function mostrarRecuperarSenha(){ esconderTodosOsFormularios(); document.getElementById('formRecuperarSenha').classList.remove('hidden'); }
+  function mostrarNovaSenha(){ esconderTodosOsFormularios(); document.getElementById('formNovaSenha').classList.remove('hidden'); }
 
   function msgLogin(texto, tipo){
     document.getElementById('loginMsg').innerHTML = `<div class="login-${tipo}">${texto}</div>`;
@@ -387,6 +408,34 @@
     if(error){ msgLogin('Não foi possível entrar: ' + error.message, 'erro'); return; }
     await iniciarApp();
   }
+
+  async function enviarRecuperacaoSenha(){
+    const email = document.getElementById('recSenhaEmail').value.trim();
+    if(!email){ msgLogin('Informe seu e-mail.', 'erro'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href.split('#')[0] });
+    if(error){ msgLogin('Não foi possível enviar o e-mail: ' + error.message, 'erro'); return; }
+    msgLogin('Enviamos um link de redefinição para o seu e-mail. Abra o link e defina a nova senha.', 'ok');
+  }
+
+  async function definirNovaSenha(){
+    const s1 = document.getElementById('novaSenha1').value;
+    const s2 = document.getElementById('novaSenha2').value;
+    if(!s1 || s1.length < 6){ msgLogin('A senha precisa ter pelo menos 6 caracteres.', 'erro'); return; }
+    if(s1 !== s2){ msgLogin('As senhas não são iguais.', 'erro'); return; }
+    const { error } = await sb.auth.updateUser({ password: s1 });
+    if(error){ msgLogin('Não foi possível salvar a nova senha: ' + error.message, 'erro'); return; }
+    msgLogin('Senha atualizada! Entrando...', 'ok');
+    await iniciarApp();
+  }
+
+  // Quando o vendedor clica no link do e-mail de recuperação, o Supabase
+  // volta pro site já autenticado num "modo recuperação" — detectamos isso
+  // aqui e mostramos a tela de definir nova senha em vez do login normal.
+  sb.auth.onAuthStateChange((event) => {
+    if(event === 'PASSWORD_RECOVERY'){
+      mostrarNovaSenha();
+    }
+  });
 
   async function cadastrar(){
     const nome = document.getElementById('cadNome').value.trim();
@@ -1322,6 +1371,10 @@
 
   // ---------- BOOT ----------
   (async function boot(){
+    // Se o vendedor chegou aqui pelo link de redefinição de senha, não entra
+    // direto no app — deixa o listener PASSWORD_RECOVERY mostrar a tela de nova senha.
+    const isRecovery = window.location.hash.includes('type=recovery');
+    if(isRecovery) return;
     const { data: { session } } = await sb.auth.getSession();
     if(session){ await iniciarApp(); }
   })();
